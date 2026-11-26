@@ -22,6 +22,9 @@ internal const val MAX_MESSAGE_CHARS = 4_000
 internal const val LOG_BATCH = 50
 internal const val ERROR_BATCH = 20
 
+/** Shorter wait once a failed call is queued: what tends to come right before a crash. */
+internal const val FAILURE_FLUSH_MS = 2_000L
+
 /** A trail entry attached to every error event (the last 100 are kept, oldest first). */
 public data class Breadcrumb @JvmOverloads constructor(
     /** `http`, `navigation`, `log`, `user`, or your own. */
@@ -96,7 +99,8 @@ public class ApiStudioClient internal constructor(
     private val errorUploader = Uploader(
         "$baseUrl/api/v1/errors/batch", apiKey, transport, errorQueue, "events", ERROR_BATCH, ::shrinkError, ::debug,
     )
-    private var timer: ScheduledFuture<*>? = null
+    @Volatile private var timer: ScheduledFuture<*>? = null
+    private val failureFlushPending = java.util.concurrent.atomic.AtomicBoolean(false)
 
     public val enabled: Boolean get() = options.enabled
 
@@ -122,6 +126,7 @@ public class ApiStudioClient internal constructor(
     /** Stops the timer and sends what is queued. Blocks; for tests and shutdown. */
     internal fun close() {
         timer?.cancel(false)
+        timer = null
         try {
             executor.submit { flushNow(force = true) }.get(30, TimeUnit.SECONDS)
         } catch (_: Throwable) {
@@ -132,6 +137,7 @@ public class ApiStudioClient internal constructor(
     /** Stops this client without blocking: queued work (a last flush included) finishes in the background. */
     internal fun shutdownAsync() {
         timer?.cancel(false)
+        timer = null
         runInBackground { flushNow(force = true) }
         executor.shutdown()
     }
@@ -193,6 +199,7 @@ public class ApiStudioClient internal constructor(
             addHttpBreadcrumb(log)
             val processed = options.beforeSendLog?.let { it.process(log) ?: return } ?: log
             logQueue.push(processed)
+            onLogQueued(failed)
         } catch (error: Throwable) {
             debug("Could not record a request: $error")
         }
@@ -258,7 +265,12 @@ public class ApiStudioClient internal constructor(
     ) {
         if (!enabled) return
         try {
-            buildErrorEvent(throwable, fatal = false, handled = true, tags, extra, fingerprint)?.let(errorQueue::push)
+            buildErrorEvent(throwable, fatal = false, handled = true, tags, extra, fingerprint)?.let {
+                errorQueue.push(it)
+                // Send it now with the API calls that led to it; both queues stay on disk if the
+                // app dies first, and go on the next launch.
+                if (timer != null) runInBackground { flushNow(force = false) }
+            }
         } catch (error: Throwable) {
             debug("Could not capture an error: $error")
         }
@@ -348,6 +360,41 @@ public class ApiStudioClient internal constructor(
     /** Sends everything queued now, in the background. Errors go first. */
     public fun flush() {
         runInBackground { flushNow(force = true) }
+    }
+
+    /**
+     * Logs normally wait for the next timer tick and go together. A full batch goes at once, and
+     * a failed call pulls the next send in to [FAILURE_FLUSH_MS].
+     */
+    private fun onLogQueued(failed: Boolean) {
+        if (timer == null) return // not started (or stopped): nothing sends
+        if (logQueue.size >= LOG_BATCH) {
+            runInBackground { logUploader.flush() }
+            return
+        }
+        if (!failed || !failureFlushPending.compareAndSet(false, true)) return
+        try {
+            executor.schedule(
+                {
+                    failureFlushPending.set(false)
+                    flushNow(force = false)
+                },
+                minOf(FAILURE_FLUSH_MS, options.flushIntervalMs), TimeUnit.MILLISECONDS,
+            )
+        } catch (error: Throwable) {
+            failureFlushPending.set(false)
+            debug("Could not schedule an upload: $error")
+        }
+    }
+
+    /** The app left the foreground: save both queues and send them, the OS may kill it any time. */
+    internal fun onBackground() {
+        if (!enabled || timer == null) return
+        runInBackground {
+            logQueue.persistNow()
+            errorQueue.persistNow()
+            flushNow(force = true)
+        }
     }
 
     /** Sends on the calling thread. */

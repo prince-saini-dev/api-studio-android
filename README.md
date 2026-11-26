@@ -91,7 +91,7 @@ ApiStudio.captureMessage("Payment sheet dismissed")
 ApiStudio.addBreadcrumb("navigation", "Cart → Checkout")
 ApiStudio.addBreadcrumb(Breadcrumb(category = "user", message = "Tapped Pay", level = "info"))
 
-ApiStudio.flush() // sends now, in the background (otherwise every 5 s)
+ApiStudio.flush() // sends now, in the background (otherwise every 10 s, at once on errors and when the app goes to the background)
 ```
 
 ## What it does
@@ -126,7 +126,7 @@ a single low-priority daemon thread.
 | `redactHeaders`, `redactKeys`, `includeDefaultRedaction` | `[]`, `[]`, `true` | |
 | `ignoreUrls`, `ignoreUrlPatterns` | `[]` | Substrings or `Regex` values |
 | `maxBodyBytes` | `65536` | |
-| `flushIntervalMs` | `5000` | |
+| `flushIntervalMs` | `10000` | How long logs wait to go together. 50 logs go at once; a failed call shortens it to 2 s. |
 | `maxQueueSize` | `500` | Per queue |
 | `beforeSendLog`, `beforeSendError` | none | Change or drop (return `null`) an item, as a `JSONObject` |
 | `debug` | `false` | Logcat diagnostics |

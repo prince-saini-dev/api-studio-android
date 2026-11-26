@@ -88,11 +88,16 @@ internal class Uploader(
         private set
     private var batchSize = defaultBatchSize
 
-    /** Sends everything queued. Returns when the queue is empty or a retry is pending. */
+    /**
+     * Sends what is queued when the flush starts; items queued meanwhile wait for the next flush,
+     * so a busy app never turns one flush into a stream of tiny requests. Returns when done or
+     * when a retry is pending.
+     */
     fun flush(force: Boolean = false) {
         if (!force && clock() < retryAt) return
-        while (queue.size > 0) {
-            val batch = queue.peek(batchSize)
+        var left = queue.size
+        while (left > 0 && queue.size > 0) {
+            val batch = queue.peek(minOf(batchSize, left))
             if (batch.isEmpty()) return
             val outcome = try {
                 classify(transport.post(url, apiKey, JSONObject().put(wrapKey, JSONArray(batch)).toString()))
@@ -103,6 +108,7 @@ internal class Uploader(
                 Outcome.ACCEPTED, Outcome.DROPPED -> {
                     if (outcome == Outcome.DROPPED) log("Dropped ${batch.size} rejected item(s).")
                     queue.drop(batch.size)
+                    left -= batch.size
                     failures = 0
                     retryAt = 0
                     batchSize = defaultBatchSize
@@ -118,6 +124,7 @@ internal class Uploader(
                             log("Retrying an oversized item without bodies.")
                         } else {
                             queue.drop(1)
+                            left -= 1
                         }
                     }
                 }

@@ -1,6 +1,9 @@
 package cloud.apistudio
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
+import android.os.Bundle
 import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
@@ -59,12 +62,44 @@ public object ApiStudio {
             if (!options.enabled) return
             if (options.captureErrors) ApiStudioCrashHandler.install { client }
             next.start()
+            watchForeground(appContext)
             next.debug("Started; session ${next.sessionId}.")
         } catch (error: IllegalArgumentException) {
             throw error
         } catch (error: Throwable) {
             Log.w(TAG, "API Studio could not start: $error")
         }
+    }
+
+    @Volatile private var watchingForeground = false
+
+    /**
+     * Sends everything queued when the last activity stops (the app went to the background or is
+     * closing): the OS may kill a background app at any time. Registered once; it always talks to
+     * the current client.
+     */
+    private fun watchForeground(context: Context) {
+        if (watchingForeground) return
+        val application = context as? Application ?: return
+        watchingForeground = true
+        application.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
+            private var started = 0
+
+            override fun onActivityStarted(activity: Activity) {
+                started++
+            }
+
+            override fun onActivityStopped(activity: Activity) {
+                started = maxOf(0, started - 1)
+                if (started == 0 && !activity.isChangingConfigurations) client?.onBackground()
+            }
+
+            override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {}
+            override fun onActivityResumed(activity: Activity) {}
+            override fun onActivityPaused(activity: Activity) {}
+            override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+            override fun onActivityDestroyed(activity: Activity) {}
+        })
     }
 
     /** Attaches a user or tester to everything sent from now on. Pass null on sign-out. */

@@ -72,8 +72,12 @@ public class ApiStudioOptions {
     /** Bytes kept per request and response body. Default 64 KB. */
     public var maxBodyBytes: Int = 64 * 1024
 
-    /** How often queued items are sent. */
-    public var flushIntervalMs: Long = 5_000
+    /**
+     * How long logs wait to be sent together. Default 10 s. A full batch (50 logs) goes at once,
+     * a failed call shortens the wait to 2 s, and errors are sent immediately with the logs that
+     * led to them. Everything queued is also sent when the app goes to the background.
+     */
+    public var flushIntervalMs: Long = 10_000
 
     /** Items kept per queue while offline; the oldest are dropped. */
     public var maxQueueSize: Int = 500

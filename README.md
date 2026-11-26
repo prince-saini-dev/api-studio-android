@@ -5,7 +5,7 @@ Retrofit request), crashes and handled errors to the API Studio portal. It speak
 [API Studio SDK protocol v1](../api-studio-backend/docs/sdk-protocol.md) and mirrors the JS SDK
 (`api-studio-js`): it uses the same redaction defaults, retry rules, batch sizes and breadcrumb limits.
 
-- Artifact: `cloud.apistudio:api-studio-android` (not published yet; see [Building](#building))
+- Artifact: `com.github.prince-saini-dev:api-studio-android` on [JitPack](https://jitpack.io/#prince-saini-dev/api-studio-android)
 - Package: `cloud.apistudio`
 - minSdk 21, OkHttp 4.x (optional; needed only for network capture)
 
@@ -13,18 +13,21 @@ Retrofit request), crashes and handled errors to the API Studio portal. It speak
 
 ### 1. Add the dependency
 
-Until the artifact is on a Maven repository, publish it to your local Maven repository (see
-[Building](#building)) and add `mavenLocal()`:
+The SDK is served by JitPack. Add the JitPack repository, then the dependency:
 
 ```kotlin
 // settings.gradle.kts
 dependencyResolutionManagement {
-    repositories { mavenLocal(); google(); mavenCentral() }
+    repositories {
+        google()
+        mavenCentral()
+        maven { url = uri("https://jitpack.io") }
+    }
 }
 
 // app/build.gradle.kts
 dependencies {
-    implementation("cloud.apistudio:api-studio-android:0.1.0")
+    implementation("com.github.prince-saini-dev:api-studio-android:0.1.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0") // you most likely have this already
 }
 ```

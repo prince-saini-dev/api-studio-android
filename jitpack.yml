@@ -1,0 +1,5 @@
+# JitPack builds the library on each tag; the sample app is not published.
+jdk:
+  - openjdk17
+install:
+  - ./gradlew :api-studio-android:publishToMavenLocal -x test
